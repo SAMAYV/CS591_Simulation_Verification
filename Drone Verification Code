@@ -1,0 +1,124 @@
+ArchiveEntry "CS591"
+Description "UAV_Drone".
+
+/*
+    Air Drags and Air Disturbances are neglected.
+    Motor or Propellers limits are also neglected.
+*/
+/*
+    a = Sin(thetax)
+    b = Cos(thetax)
+    c = Sin(thetay)
+    d = Cos(thetay)
+    
+    a' = b
+    b' = -a
+    c' = d
+    d' = -c
+    
+    e = Sin(thetaz)
+    f = Cos(thetaz)
+    g = Sin(thetaXY)
+    h = Cos(thetaXY)
+    
+    e' = f
+    f' = -e
+    g' = h
+    h' = -g
+*/
+
+/* Represent all the constant terms used */
+
+Definitions
+    Real Ax, Ay, Az;
+    Real m, g, Ix, Iy, Iz;
+    Real rho, Cd;
+End.
+
+/* Represent all the state variables */
+
+ProgramVariables
+    Real throttle, pitch, roll, yaw; 
+    Real voltage1, voltage2, voltage3, voltage4, RPM1, RPM2, RPM3, RPM4;
+    Real Torque1, Torque2, Torque3, Torque4;
+    Real F1, F2, F3, F4, Momentx, Momenty, Momentz, Forcex, Forcey, Forcez;
+    Real Fprop1, Fprop2, Fprop3;
+    Real x, y, vx, vy, vz, Accx, Accy, Accz;
+    Real thetax, thetay, thetaz, RotAccx, RotAccy, RotAccz;
+    Real ThetaXY, XY2D;
+End.
+
+Problem
+    /* All the input values are given here */
+    throttle = 30 & pitch = 0 & roll = 0 & yaw = 0 & Ix = 0.003 & Iy = 0.003 & Iz = 0.007 & m = 0.734 & g = 9.81 &
+    Ax = 0.0197 & Ay = 0.0197 & Az = 0.0512 & rho = 1.225 & Cd = 1
+    -> 
+    [{
+        /* Represent the continuous part of dynamics */
+        {
+            x' = vx, y' = vy, throttle' = vz, vx' = Accx, vy' = Accy, vz' = Accz,
+            thetax' = pitch, thetay' = roll, thetaz' = yaw, pitch' = RotAccx, roll' = RotAccy, yaw' = RotAccy,
+            a' = b, b' = -1*a, c' = d, d' = -1*c,
+            e' = f, f' = -1*e, g' = h, h' = -1*g,
+            ThetaXY' = -1 / (1 + (Fprop1/Fprop2)^2)
+        }
+        /* Represent the discrete part of dynamics */
+        {
+            /* Motors or Propellers */
+            voltage1 := (throttle - pitch/2 - roll/2 - yaw/2)*11.4/100; 
+            voltage2 := (throttle - pitch/2 + roll/2 + yaw/2)*11.4/100; 
+            voltage3 := (throttle + pitch/2 + roll/2 - yaw/2)*11.4/100; 
+            voltage4 := (throttle + pitch/2 - roll/2 + yaw/2)*11.4/100;
+            
+            RPM1 := -2.6931*(Voltage1^3) + 1400*Voltage1;
+            RPM2 := -2.6931*(Voltage2^3) + 1400*Voltage2;
+            RPM3 := -2.6931*(Voltage3^3) + 1400*Voltage3;
+            RPM4 := -2.6931*(Voltage4^3) + 1400*Voltage4;
+            
+            F1 := (2*(10^-15)*(RPM1^3) - 4*(10^-11)*(RPM1^2) + 3*(10^-7)*RPM1 + 0.1013)*1.225*((RPM1/60)^2)*0.0016;
+            F2 := (2*(10^-15)*(RPM2^3) - 4*(10^-11)*(RPM2^2) + 3*(10^-7)*RPM2 + 0.1013)*1.225*((RPM2/60)^2)*0.0016;
+            F3 := (2*(10^-15)*(RPM3^3) - 4*(10^-11)*(RPM3^2) + 3*(10^-7)*RPM3 + 0.1013)*1.225*((RPM3/60)^2)*0.0016;
+            F4 := (2*(10^-15)*(RPM4^3) - 4*(10^-11)*(RPM4^2) + 3*(10^-7)*RPM4 + 0.1013)*1.225*((RPM4/60)^2)*0.0016;
+            
+            Torque1 := 4*(10^-14)*(RPM1^3) + 8*(10^-12)*(RPM1^2) + 3*(10^-6)*RPM1;
+            Torque2 := 4*(10^-14)*(RPM2^3) + 8*(10^-12)*(RPM2^2) + 3*(10^-6)*RPM2;
+            Torque3 := 4*(10^-14)*(RPM3^3) + 8*(10^-12)*(RPM3^2) + 3*(10^-6)*RPM3;
+            Torque4 := 4*(10^-14)*(RPM4^3) + 8*(10^-12)*(RPM4^2) + 3*(10^-6)*RPM4;
+            
+            /* Rotational Dynamics */
+            Moment1 := (F3 + F4)*0.237/2 - (F1 + F2)*0.237/2;
+            Moment2 := (F3 + F2)*0.237/2 - (F1 + F4)*0.237/2;
+            Moment3 := Torque4 - Torque1 + Torque2 - Torque3;
+            
+            RotAccx := Momentx/Ix;
+            RotAccy := Momenty/Iy;
+            RotAccz := Momentz/Iz;
+            
+            /* Linear Dynamics */
+            Fprop1 := c * b * (F1 + F2 + F3 + F4);
+            Fprop2 := a * d * (F1 + F2 + F3 + F4);
+            Fprop3 := b * d * (F1 + F2 + F3 + F4);
+            
+            XY2D := sqrt(Fprop1^2 + Fprop2^2);
+            
+            ?Fprop3 >= 0; Fprop1 := XY2D * (e*h + f*g); ++
+            ?Fprop3 >= 0; Fprop2 := XY2D * (f*h - e*g); ++
+            ?Fprop3 < 0; Fprop1 := XY2D * (g*f - e*h); ++
+            ?Fprop3 < 0; Fprop2 := XY2D * (e*g + f*h);
+            
+            Forcex := F1;
+            Forcey := F2;
+            Forcez := F3 - m * g;
+        
+            Accx := Forcex / m;
+            Accy := Forcey / m;
+            Accz := Forcez / m;
+        }
+    }*@invariant(throttle>=25 & throttle<=35)] throttle>=25 & throttle<=35
+End.
+
+Tactic "UAV_Drone: automatic"
+  auto
+End.
+
+End.
